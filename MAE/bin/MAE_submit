@@ -1,0 +1,80 @@
+#! /usr/bin/env python
+# -*- coding: utf-8 -*-
+from os import system, chdir, path
+from numpy import linspace, pi, sin, cos
+
+#############################
+User = "zyh"
+JobName = "Mag"
+NP = 28
+#############################
+
+flag = 20
+line = linspace(0, pi / 2, flag)
+
+WAVECAR_flag = path.isfile("WAVECAR")
+INCAR = open("INCAR", "r").readlines()
+INCAR_index = [INCAR.index(i) for i in INCAR if i.find("SAXIS") != -1][0]
+system("mkdir -p workdir")
+chdir("workdir")
+
+SAXIS = [[0, i, 1, sin(i), 0, cos(i)] for i in line]
+SAXIS += [[pi / 2, i, 1, 0, sin(i), cos(i)] for i in line]
+SAXIS += [[i, 0, 1, sin(i), cos(i), 0] for i in line]
+
+wlist = open("worklist", "w")
+wlist.write("Accuracy_Flag = %d\n" % flag)
+wlist.write("%6s%10s%10s%6s%8s%8s%8s\n" % ("List", "Phi", "Theta", "R", "X", "Y", "Z"))
+for line in SAXIS:
+    wlist.write("%6d%7.2f pi%7.2f pi%6d%8.3f%8.3f%8.3f\n" %
+                (SAXIS.index(line), line[0] / pi, line[1] / pi, line[2],
+                 line[3], line[4], line[5]))
+wlist.close()
+
+
+def pre_job(i):
+    system("mkdir -p Mag%03d" % i)
+    chdir("Mag%03d" % i)
+    system("ln -sf ../../KPOINTS KPOINTS")
+    system("ln -sf ../../POTCAR POTCAR")
+    system("ln -sf ../../POSCAR POSCAR")
+
+    # copy WAVECAR
+    if WAVECAR_flag:
+        system("ln -sf ../../WAVECAR WAVECAR")
+
+    # setting INCAR
+    INCAR[INCAR_index] = "SAXIS = %f %f %f\n" % (SAXIS[i][3], SAXIS[i][4],
+                                                 SAXIS[i][5])
+    open("INCAR", "w").writelines(INCAR)
+
+    # setting submit.LSF
+    LSF = open("submit", "w")
+    LSF.write('#!/bin/sh\n')
+    LSF.write('#BSUB -J %s_%s%03d\n' % (User, JobName, i))
+    LSF.write('#BSUB -n %d\n' % NP)
+    LSF.write('#BSUB -q normal\n')
+    LSF.write('#BSUB -R "span[ptile=28]"\n')
+    LSF.write('#BSUB -o %J.log\n')
+    LSF.write('#BSUB -m "c01n02 c01n03 c01n04 c01n05 c01n06 c01n07 c01n08 ')
+    LSF.write('c01n09 c01n10 c01n11 c01n12 c01n13 c01n14 c01n15 c01n16 ')
+    LSF.write('c02n05 c02n06 c02n07 c02n08 c02n09 c02n10 c02n11 c02n12 ')
+    LSF.write('c02n13 c02n14 c02n15 c02n16 c03n01 c03n02 c03n03 c03n04 ')
+    LSF.write('c03n05 c03n06 c03n07 c03n08 c03n10 c03n11 c03n12 c03n13 ')
+    LSF.write('c03n14 c03n15 c03n16"\n')
+    LSF.write('\nmpirun -np %d vasp.ncl.5.4.1 > log\n' % NP)
+    LSF.write('rm WAVECAR\n')
+    LSF.write('rm CHG*\n')
+    chdir("../")
+
+
+def do_submit(i):
+    chdir("Mag%03d" % i)
+    #system("bsub < submit")
+    open("log", "w").writelines("bsub < submit")
+    chdir("../")
+
+
+for i in xrange(len(SAXIS)):
+    pre_job(i)
+    do_submit(i)
